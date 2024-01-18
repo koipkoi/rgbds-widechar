@@ -12,7 +12,7 @@ struct Charmap *charmap_New(char const *name, char const *baseName);
 void charmap_Set(char const *name);
 void charmap_Push(void);
 void charmap_Pop(void);
-void charmap_Add(char *mapping, uint8_t value);
+void charmap_Add(char *mapping, uint16_t value, uint8_t len);
 bool charmap_HasChar(char const *input);
 size_t charmap_Convert(char const *input, uint8_t *output);
 size_t charmap_ConvertNext(char const **input, uint8_t **output);

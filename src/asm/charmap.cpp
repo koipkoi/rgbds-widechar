@@ -20,7 +20,8 @@
 // whether there exists a mapping that ends at the current character,
 struct Charnode {
 	bool isTerminal; // Whether there exists a mapping that ends here
-	uint8_t value; // If the above is true, its corresponding value
+	uint8_t len;
+	uint16_t value; // If the above is true, its corresponding value
 	// This MUST be indexes and not pointers, because pointers get invalidated by `realloc`!
 	size_t next[255]; // Indexes of where to go next, 0 = nowhere
 };
@@ -141,7 +142,7 @@ void charmap_Pop(void)
 	free(top);
 }
 
-void charmap_Add(char *mapping, uint8_t value)
+void charmap_Add(char *mapping, uint16_t value, uint8_t len)
 {
 	struct Charmap *charmap = *currentCharmap;
 	struct Charnode *node = &charmap->nodes[0];
@@ -171,6 +172,7 @@ void charmap_Add(char *mapping, uint8_t value)
 		warning(WARNING_CHARMAP_REDEF, "Overriding charmap mapping\n");
 
 	node->isTerminal = true;
+	node->len = len;
 	node->value = value;
 }
 
@@ -233,8 +235,11 @@ size_t charmap_ConvertNext(char const **input, uint8_t **output)
 			*input -= rewindDistance; // This will rewind all the way if no match found
 
 			if (match) { // A match was found, use it
-				if (output)
-					*(*output)++ = match->value;
+				if (output) {
+					for (int i = match->len - 1; i >= 0; i--) {
+						*(*output)++ = (uint8_t)((match->value >> (i * 8)) & 0xFF);
+					}
+				}
 
 				return 1;
 

@@ -46,13 +46,13 @@ static void lowerstring(char *dest, char const *src)
 	*dest = '\0';
 }
 
-static uint32_t str2int2(uint8_t *s, uint32_t length)
+static uint32_t str2int2(uint8_t *s, uint32_t length, uint32_t charlen)
 {
 	if (length > 4)
 		warning(WARNING_NUMERIC_STRING_1,
 			"Treating string as a number ignores first %" PRIu32 " character%s\n",
 			length - 4, length == 5 ? "" : "s");
-	else if (length > 1)
+	else if (length > 1 && charlen != 1)
 		warning(WARNING_NUMERIC_STRING_2,
 			"Treating %" PRIu32 "-character string as a number\n", length);
 
@@ -513,13 +513,14 @@ enum {
 	} forArgs;
 	struct StrFmtArgList strfmtArgs;
 	bool captureTerminated;
+	uint8_t charmapLen;
 }
 
 %type	<expr>		relocexpr
 %type	<expr>		relocexpr_no_str
 %type	<constValue>	const
 %type	<constValue>	const_no_str
-%type	<constValue>	const_8bit
+%type	<constValue>	const_16bit
 %type	<constValue>	uconst
 %type	<constValue>	rs_uconst
 %type	<constValue>	const_3bit
@@ -635,6 +636,8 @@ enum {
 %token	T_POP_UNION "UNION" T_POP_NEXTU "NEXTU" T_POP_ENDU "ENDU"
 %token	T_POP_INCBIN "INCBIN" T_POP_REPT "REPT" T_POP_FOR "FOR"
 %token	T_POP_CHARMAP "CHARMAP"
+%type	<charmapLen> charmaplen
+
 %token	T_POP_NEWCHARMAP "NEWCHARMAP"
 %token	T_POP_SETCHARMAP "SETCHARMAP"
 %token	T_POP_PUSHC "PUSHC"
@@ -1333,8 +1336,19 @@ incbin		: T_POP_INCBIN string {
 		}
 ;
 
-charmap		: T_POP_CHARMAP string T_COMMA const_8bit {
-			charmap_Add($2, (uint8_t)$4);
+charmap		: T_POP_CHARMAP string T_COMMA const_16bit charmaplen {
+			charmap_Add($2, (uint16_t)$4, $5);
+		}
+;
+
+charmaplen	: %empty { $$ = 1; }
+		| T_COMMA uconst {
+			if ($2 < 1 || $2 > 2) {
+				error("Charmap length must be between 1 and 2 now, not %u\n", $2);
+				$$ = -1;
+			} else {
+				$$ = $2;
+			}
 		}
 ;
 
@@ -1392,7 +1406,7 @@ constlist_8bit_entry : reloc_8bit_no_str {
 			sect_RelByte(&$1, 0);
 		}
 		| string {
-			uint8_t *output = (uint8_t *)malloc(strlen($1)); // Cannot be larger than that
+			uint8_t *output = (uint8_t *)malloc(strlen($1) * 2); // Cannot be larger than that
 			size_t length = charmap_Convert($1, output);
 
 			sect_AbsByteGroup(output, length);
@@ -1408,7 +1422,7 @@ constlist_16bit_entry : reloc_16bit_no_str {
 			sect_RelWord(&$1, 0);
 		}
 		| string {
-			uint8_t *output = (uint8_t *)malloc(strlen($1)); // Cannot be larger than that
+			uint8_t *output = (uint8_t *)malloc(strlen($1) * 2); // Cannot be larger than that
 			size_t length = charmap_Convert($1, output);
 
 			sect_AbsWordGroup(output, length);
@@ -1425,7 +1439,7 @@ constlist_32bit_entry : relocexpr_no_str {
 		}
 		| string {
 			// Charmaps cannot increase the length of a string
-			uint8_t *output = (uint8_t *)malloc(strlen($1));
+			uint8_t *output = (uint8_t *)malloc(strlen($1) * 2);
 			size_t length = charmap_Convert($1, output);
 
 			sect_AbsLongGroup(output, length);
@@ -1471,9 +1485,10 @@ reloc_16bit_no_str : relocexpr_no_str {
 relocexpr	: relocexpr_no_str
 		| string {
 			// Charmaps cannot increase the length of a string
-			uint8_t *output = (uint8_t *)malloc(strlen($1));
+			uint8_t *output = (uint8_t *)malloc(strlen($1) * 2);
+			uint32_t charlen = charlenUTF8($1);
 			uint32_t length = charmap_Convert($1, output);
-			uint32_t r = str2int2(output, length);
+			uint32_t r = str2int2(output, length, charlen);
 
 			free(output);
 			rpn_Number(&$$, r);
@@ -1654,7 +1669,7 @@ const		: relocexpr { $$ = rpn_GetConstVal(&$1); }
 const_no_str	: relocexpr_no_str { $$ = rpn_GetConstVal(&$1); }
 ;
 
-const_8bit	: reloc_8bit { $$ = rpn_GetConstVal(&$1); }
+const_16bit	: reloc_16bit { $$ = rpn_GetConstVal(&$1); }
 ;
 
 opt_q_arg	: %empty { $$ = fix_Precision(); }
